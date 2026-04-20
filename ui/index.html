@@ -52,7 +52,7 @@
               </div>
               <template x-if="expandedNodes.has(eng + '.' + schema.name)">
                 <template x-for="tbl in schema.tables" :key="tbl.fqn">
-                  <div class="tree-node table" @click="insertTable(tbl.fqn)" :title="'SELECT * FROM ' + tbl.fqn + ' LIMIT 100'">
+                  <div class="tree-node table" @click="insertTable(tbl.fqn, eng)" :title="'SELECT * FROM ' + tbl.fqn + ' LIMIT 100'">
                     <span style="color:var(--muted)">⊞</span>
                     <span x-text="tbl.table"></span>
                   </div>

@@ -108,8 +108,12 @@ function lakehouseApp() {
       return Object.values(map);
     },
 
-    insertTable(fqn) {
+    insertTable(fqn, sourceEngine) {
       this.sql = `SELECT *\nFROM ${fqn}\nLIMIT 100`;
+      // Auto-switch engine to match table source
+      if (sourceEngine) {
+        this.engine = sourceEngine;
+      }
       // Auto-run on click
       this.$nextTick(() => this.runQuery());
     },
