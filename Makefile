@@ -86,6 +86,29 @@ down: ## Stop and remove containers (volumes preserved)
 restart: _check-env ## Restart all services
 	$(COMPOSE) restart
 
+.PHONY: reload
+reload: down _check-env ## Reload all services (keeps data)
+	$(COMPOSE) up -d
+	@printf "Services reloaded. Waiting for health checks...\n"
+	@sleep 5 && $(COMPOSE) ps
+
+.PHONY: reload-clean
+reload-clean: ## Reload with fresh start (deletes all data and volumes)
+	$(COMPOSE) --profile flink --profile bento down -v
+	@make up
+
+.PHONY: reload-flink
+reload-flink: down _check-env ## Reload with Flink streaming profile (keeps data)
+	$(COMPOSE) --profile flink up -d --build
+	@printf "Flink profile reloaded. Waiting for health checks...\n"
+	@sleep 5 && $(COMPOSE) ps
+
+.PHONY: reload-bento
+reload-bento: down _check-env ## Reload with Bento streaming profile (keeps data)
+	$(COMPOSE) --profile bento up -d --build
+	@printf "Bento profile reloaded. Waiting for health checks...\n"
+	@sleep 5 && $(COMPOSE) ps
+
 .PHONY: status
 status: ## Show container status and health
 	$(COMPOSE) ps
