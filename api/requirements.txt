@@ -1,0 +1,5 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+duckdb==1.2.2
+boto3==1.37.37
+trino==0.334.0

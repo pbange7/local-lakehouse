@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker --version)",
+      "Bash(docker compose:*)",
+      "Bash(docker pull:*)",
+      "Bash(chmod +x:*)",
+      "Bash(tree -aL 3 /Users/pbange7/workspace/mygit/local-lakehouse)",
+      "Bash(pip install:*)",
+      "Bash(PYTHONPATH=producer pytest:*)",
+      "Bash(docker context:*)",
+      "Bash(docker info:*)",
+      "Bash(bash:*)",
+      "Bash(curl -s http://localhost:19120/api/v2/config)",
+      "Bash(curl -s http://localhost:19120/iceberg/v1/config)",
+      "Bash(curl -s http://localhost:19120/catalog/v1/config)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:19120/q/openapi)",
+      "Bash(curl -s http://localhost:19120/q/openapi)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); paths=list\\(d.get\\('paths',{}\\).keys\\(\\)\\); [print\\(p\\) for p in sorted\\(paths\\)[:60]]\")",
+      "Bash(curl -s http://localhost:19120/q/openapi.yaml)",
+      "Bash(curl -s -w \"\\\\nHTTP:%{http_code}\" http://localhost:19120/api/v1/namespaces/main)",
+      "Bash(curl -s -w '\\\\nHTTP:%{http_code}' -X PUT http://localhost:19120/api/v1/namespaces/namespace/main/smoke_test -H 'Content-Type: application/json' -d '{\"properties\":{}}')",
+      "Bash(curl -s http://localhost:19120/api/v1/namespaces/main)",
+      "Bash(curl -s -w '\\\\nHTTP:%{http_code}' -X PUT http://localhost:19120/api/v1/namespaces/namespace/main/smoke_test -H 'Content-Type: application/json' -d '{\"type\":\"NAMESPACE\",\"elements\":[\"smoke_test\"],\"properties\":{}}')",
+      "Bash(curl:*)",
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)"
+    ]
+  }
+}

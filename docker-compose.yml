@@ -1,0 +1,395 @@
+networks:
+  lakehouse:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  minio-data:
+  flink-checkpoints:
+  clickhouse-data:
+
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: lakehouse-kafka
+    networks:
+      - lakehouse
+    ports:
+      - "9092:9092"   # PLAINTEXT — internal Docker clients (producer, Flink, etc.)
+      - "9094:9094"   # HOST — host-side access (kcat, Kafka UI, smoke test from Mac)
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  schema-registry:
+    image: apicurio/apicurio-registry-mem:3.0.6
+    container_name: lakehouse-schema-registry
+    profiles:
+      - schema-registry
+    networks:
+      - lakehouse
+    ports:
+      - "8081:8081"
+    environment:
+      QUARKUS_HTTP_PORT: 8081
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  minio:
+    image: minio/minio:latest
+    container_name: lakehouse-minio
+    networks:
+      - lakehouse
+    ports:
+      - "9000:9000"   # S3 API — used by Flink, Trino, DuckDB, boto3
+      - "9001:9001"   # MinIO console UI
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lakehouse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-lakehouse123}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: lakehouse-minio-init
+    networks:
+      - lakehouse
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lakehouse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-lakehouse123}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+        mc mb --ignore-existing local/lakehouse &&
+        echo '[INFO] Bucket lakehouse ready.' &&
+        exit 0
+      "
+    restart: on-failure
+
+  nessie:
+    image: projectnessie/nessie:0.76.6
+    container_name: lakehouse-nessie
+    networks:
+      - lakehouse
+    ports:
+      - "19120:19120"   # Nessie REST API + Iceberg REST catalog (/iceberg/v1/...)
+    environment:
+      NESSIE_VERSION_STORE_TYPE: IN_MEMORY
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:19120/q/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  clickhouse-flink-init:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: lakehouse-clickhouse-flink-init
+    profiles: [flink]
+    networks:
+      - lakehouse
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        clickhouse-client --host clickhouse --multiquery \"
+          CREATE TABLE IF NOT EXISTS web_logs.web_logs_queue
+          (
+            request_id  String, method String, path String,
+            status_code Int32,  latency_ms Int32,
+            ip String, user_agent String, ts String
+          )
+          ENGINE = Kafka
+          SETTINGS
+            kafka_broker_list = 'kafka:9092',
+            kafka_topic_list  = 'web-logs',
+            kafka_group_name  = 'clickhouse-web-logs',
+            kafka_format      = 'JSONEachRow',
+            kafka_skip_broken_messages = 1;
+
+          CREATE MATERIALIZED VIEW IF NOT EXISTS web_logs.web_logs_mv
+          TO web_logs.web_logs
+          AS SELECT
+            request_id, method, path,
+            CAST(status_code AS UInt16) AS status_code,
+            CAST(latency_ms  AS UInt32) AS latency_ms,
+            ip, user_agent, ts
+          FROM web_logs.web_logs_queue;
+
+          SELECT 'Kafka Engine + MaterializedView created.' AS status;
+        \"
+      "
+    restart: "no"
+
+  flink-jobmanager:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
+    image: lakehouse-flink:1.20
+    container_name: lakehouse-flink-jm
+    profiles: [flink]
+    command: jobmanager
+    networks:
+      - lakehouse
+    ports:
+      - "8082:8081"   # Flink Web UI (8081 reserved for Apicurio Schema Registry)
+    volumes:
+      - flink-checkpoints:/tmp/flink-checkpoints
+      - ./flink/sql:/opt/flink/sql:ro
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: "2"
+      # AWS_REGION is required by the AWS SDK v2 DefaultAwsRegionProviderChain
+      # Used by Iceberg S3FileIO when writing Iceberg metadata/data to MinIO.
+      # Any valid AWS region string works — MinIO ignores it.
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      FLINK_PROPERTIES: |
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        s3.access-key: lakehouse
+        s3.secret-key: lakehouse123
+        execution.checkpointing.interval: 60000
+        state.checkpoints.dir: file:///tmp/flink-checkpoints
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/jobs/overview || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  flink-taskmanager:
+    image: lakehouse-flink:1.20   # reuses image built by flink-jobmanager, no second build
+    container_name: lakehouse-flink-tm
+    profiles: [flink]
+    command: taskmanager
+    networks:
+      - lakehouse
+    volumes:
+      - flink-checkpoints:/tmp/flink-checkpoints
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: "2"
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      FLINK_PROPERTIES: |
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        s3.access-key: lakehouse
+        s3.secret-key: lakehouse123
+        execution.checkpointing.interval: 60000
+        state.checkpoints.dir: file:///tmp/flink-checkpoints
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://flink-jobmanager:8081/taskmanagers || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: lakehouse-clickhouse
+    networks:
+      - lakehouse
+    ports:
+      - "8123:8123"   # HTTP API — Flink JDBC, Trino, smoke tests, Play UI
+      # port 9000 (native TCP) intentionally not exposed — conflicts with MinIO on host
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      CLICKHOUSE_DB: web_logs
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  trino:
+    image: trinodb/trino:450
+    container_name: lakehouse-trino
+    networks:
+      - lakehouse
+    ports:
+      - "8080:8080"   # Trino HTTP API + Web UI
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: lakehouse-producer
+    networks:
+      - lakehouse
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-web-logs}
+      MESSAGES_PER_SECOND: ${MESSAGES_PER_SECOND:-10}
+      PRODUCER_CLIENT_ID: web-log-producer
+    restart: on-failure
+
+  pyiceberg-writer:
+    build:
+      context: ./pyiceberg-writer
+      dockerfile: Dockerfile
+    container_name: lakehouse-pyiceberg-writer
+    profiles: [bento]
+    networks:
+      - lakehouse
+    ports:
+      - "8001:8001"   # PyIceberg writer HTTP API (called by Bento fan-out)
+    environment:
+      NESSIE_URI: http://nessie:19120/api/v1
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-lakehouse}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-lakehouse123}
+      WAREHOUSE: s3://lakehouse/warehouse
+    depends_on:
+      minio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: on-failure
+
+  bento:
+    image: ghcr.io/warpstreamlabs/bento:latest
+    container_name: lakehouse-bento
+    profiles: [bento]
+    networks:
+      - lakehouse
+    volumes:
+      - ./bento/bento.yaml:/bento.yaml:ro
+    command: ["-c", "/bento.yaml"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      pyiceberg-writer:
+        condition: service_healthy
+    restart: on-failure
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: lakehouse-api
+    networks:
+      - lakehouse
+    ports:
+      - "8000:8000"   # FastAPI REST API + Swagger UI (/docs)
+    environment:
+      TRINO_HOST: trino
+      TRINO_PORT: "8080"
+      TRINO_USER: admin
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-lakehouse}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-lakehouse123}
+      MINIO_BUCKET: lakehouse
+      MINIO_WAREHOUSE_PREFIX: warehouse
+    depends_on:
+      trino:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: on-failure
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: lakehouse-ui
+    networks:
+      - lakehouse
+    ports:
+      - "3000:3000"   # Web UI — SQL workbench
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

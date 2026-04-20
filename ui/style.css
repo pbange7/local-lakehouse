@@ -1,0 +1,236 @@
+/* ============================================================
+   Local Lakehouse — Web UI Styles
+   Minimal custom CSS, no external framework required.
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0f1117;
+  --bg2:       #1a1d27;
+  --bg3:       #252836;
+  --border:    #2e3248;
+  --text:      #e2e8f0;
+  --muted:     #8892a4;
+  --accent:    #6c8ef5;
+  --accent-h:  #8aa3f8;
+  --success:   #4ade80;
+  --error:     #f87171;
+  --warning:   #fbbf24;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Layout ────────────────────────────────────────────────── */
+#app {
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  grid-template-columns: 220px 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Header ────────────────────────────────────────────────── */
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+header h1 { font-size: 15px; font-weight: 600; letter-spacing: .3px; color: var(--accent); margin-right: auto; }
+header h1 span { color: var(--muted); font-weight: 400; }
+
+select, button {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+select:focus, button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 0 16px; }
+button.primary:hover:not(:disabled) { background: var(--accent-h); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+
+/* ── Sidebar ────────────────────────────────────────────────── */
+aside {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.sidebar-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 12px 8px;
+}
+.tree-node { display: flex; align-items: center; gap: 5px; padding: 3px 8px 3px 12px; cursor: pointer; border-radius: 4px; font-size: 13px; white-space: nowrap; }
+.tree-node:hover { background: var(--bg3); }
+.tree-node.engine { font-weight: 600; color: var(--accent); padding-left: 8px; }
+.tree-node.schema { padding-left: 20px; color: var(--muted); }
+.tree-node.table  { padding-left: 32px; color: var(--text); }
+.tree-node.table:hover { color: var(--accent-h); }
+.chevron { font-size: 10px; transition: transform .15s; display: inline-block; }
+.chevron.open { transform: rotate(90deg); }
+.badge {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: var(--bg3);
+  color: var(--muted);
+}
+
+/* ── Main panel ─────────────────────────────────────────────── */
+main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px;
+  gap: 10px;
+}
+
+/* ── SQL Editor ─────────────────────────────────────────────── */
+.editor-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.editor-label { font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+textarea#sql {
+  width: 100%;
+  height: 140px;
+  resize: vertical;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color .15s;
+}
+textarea#sql:focus { border-color: var(--accent); }
+
+/* ── Error box ──────────────────────────────────────────────── */
+.error-box {
+  background: #2d1515;
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--error);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Results ────────────────────────────────────────────────── */
+.results-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.results-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.results-meta strong { color: var(--text); }
+.results-meta .elapsed { color: var(--success); }
+.table-wrap {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg3);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  font-size: 12px;
+}
+tbody tr:nth-child(even) { background: rgba(255,255,255,.02); }
+tbody tr:hover { background: var(--bg3); }
+td {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+td.null { color: var(--muted); font-style: italic; }
+
+/* ── Pagination ─────────────────────────────────────────────── */
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* ── Spinner ────────────────────────────────────────────────── */
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Empty state ────────────────────────────────────────────── */
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 13px;
+  flex-direction: column;
+  gap: 6px;
+}
+.empty .icon { font-size: 32px; opacity: .3; }
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }

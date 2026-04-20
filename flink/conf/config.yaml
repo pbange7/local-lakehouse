@@ -1,0 +1,61 @@
+# =============================================================================
+# Flink 1.20 cluster configuration (YAML format — flink-conf.yaml is legacy)
+# The Docker entrypoint merges JOB_MANAGER_RPC_ADDRESS and
+# TASK_MANAGER_NUMBER_OF_TASK_SLOTS from environment variables at startup.
+# FLINK_PROPERTIES in docker-compose provides belt-and-suspenders overrides.
+# =============================================================================
+
+# --- JobManager ---------------------------------------------------------------
+jobmanager:
+  rpc:
+    address: flink-jobmanager   # Docker service name; set by JOB_MANAGER_RPC_ADDRESS
+    port: 6123
+  memory:
+    process:
+      size: 1600m
+  execution:
+    failover-strategy: region
+  bind-host: 0.0.0.0
+
+# --- TaskManager --------------------------------------------------------------
+taskmanager:
+  memory:
+    process:
+      size: 1728m
+  numberOfTaskSlots: 2
+  bind-host: 0.0.0.0
+
+# --- REST / Web UI ------------------------------------------------------------
+# Internal port is always 8081; docker-compose maps it to 8082 on the host.
+rest:
+  port: 8081
+  address: 0.0.0.0
+  bind-address: 0.0.0.0
+
+# --- Parallelism --------------------------------------------------------------
+parallelism:
+  default: 1
+
+# --- Checkpointing ------------------------------------------------------------
+# REQUIRED for Iceberg FlinkSink to commit Parquet files as Iceberg snapshots.
+# Without this, data is staged but never committed — no files appear in MinIO.
+execution:
+  checkpointing:
+    interval: 60000        # 60 seconds in milliseconds
+    mode: EXACTLY_ONCE
+    min-pause: 5000
+    timeout: 120000
+
+state:
+  checkpoints:
+    dir: file:///tmp/flink-checkpoints
+  backend: hashmap          # in-memory state backend (fine for local dev)
+
+# --- S3 / MinIO filesystem plugin ---------------------------------------------
+# Read by the flink-s3-fs-hadoop plugin (placed in plugins/s3-fs-hadoop/).
+# s3.path-style-access MUST be true — MinIO does not support virtual-hosted-style.
+s3:
+  endpoint: http://minio:9000
+  path-style-access: "true"
+  access-key: lakehouse
+  secret-key: lakehouse123

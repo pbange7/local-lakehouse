@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Lakehouse</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body>
+<div id="app" x-data="lakehouseApp()" x-init="init()">
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header>
+    <h1>Local Lakehouse <span>/ SQL Workbench</span></h1>
+
+    <label for="engine-select" style="font-size:12px;color:var(--muted)">Engine</label>
+    <select id="engine-select" x-model="engine">
+      <option value="duckdb">DuckDB (Iceberg)</option>
+      <option value="trino">Trino (federated)</option>
+    </select>
+
+    <button class="primary" @click="runQuery()" :disabled="loading">
+      <span x-show="!loading">▶ Run</span>
+      <span x-show="loading"><span class="spinner"></span></span>
+    </button>
+
+    <button class="sm" x-show="result" @click="downloadCsv()" title="Download results as CSV">↓ CSV</button>
+  </header>
+
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <aside>
+    <div class="sidebar-title">Schema Browser</div>
+
+    <template x-for="(tables, eng) in schemas" :key="eng">
+      <div>
+        <!-- Engine row -->
+        <div class="tree-node engine" @click="toggleNode(eng)">
+          <span class="chevron" :class="{ open: expandedNodes.has(eng) }">›</span>
+          <span x-text="eng"></span>
+          <span class="badge" x-text="tables.length"></span>
+        </div>
+
+        <!-- Schema + table rows -->
+        <template x-if="expandedNodes.has(eng)">
+          <template x-for="schema in groupBySchema(tables)" :key="schema.name">
+            <div>
+              <div class="tree-node schema" @click="toggleNode(eng + '.' + schema.name)">
+                <span class="chevron" :class="{ open: expandedNodes.has(eng + '.' + schema.name) }">›</span>
+                <span x-text="schema.name"></span>
+                <span class="badge" x-text="schema.tables.length"></span>
+              </div>
+              <template x-if="expandedNodes.has(eng + '.' + schema.name)">
+                <template x-for="tbl in schema.tables" :key="tbl.fqn">
+                  <div class="tree-node table" @click="insertTable(tbl.fqn)" :title="'SELECT * FROM ' + tbl.fqn + ' LIMIT 100'">
+                    <span style="color:var(--muted)">⊞</span>
+                    <span x-text="tbl.table"></span>
+                  </div>
+                </template>
+              </template>
+            </div>
+          </template>
+        </template>
+      </div>
+    </template>
+
+    <div x-show="schemaLoading" style="padding:12px;color:var(--muted);font-size:12px">Loading…</div>
+  </aside>
+
+  <!-- ── Main ────────────────────────────────────────────────── -->
+  <main>
+    <!-- SQL Editor -->
+    <div class="editor-wrap">
+      <div class="editor-label">SQL Editor <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(Ctrl+Enter to run)</span></div>
+      <textarea
+        id="sql"
+        x-model="sql"
+        spellcheck="false"
+        autocomplete="off"
+        @keydown.ctrl.enter.prevent="runQuery()"
+        @keydown.meta.enter.prevent="runQuery()"
+        placeholder="SELECT * FROM web_logs.web_logs LIMIT 10"
+      ></textarea>
+    </div>
+
+    <!-- Error -->
+    <div class="error-box" x-show="error" x-text="error"></div>
+
+    <!-- Results -->
+    <div class="results-wrap" x-show="result || loading">
+
+      <!-- Meta bar -->
+      <div class="results-meta" x-show="result">
+        <span><strong x-text="result ? result.row_count.toLocaleString() : 0"></strong> rows</span>
+        <span class="elapsed" x-text="result ? result.elapsed_ms + 'ms' : ''"></span>
+        <span style="margin-left:auto;color:var(--muted)" x-text="result ? 'Page ' + (page + 1) + ' / ' + totalPages : ''"></span>
+      </div>
+
+      <!-- Table -->
+      <div class="table-wrap">
+        <div x-show="loading" class="empty" style="height:200px">
+          <span class="spinner" style="width:28px;height:28px;border-width:3px"></span>
+          <span style="color:var(--muted)">Running query…</span>
+        </div>
+
+        <table x-show="result && !loading">
+          <thead>
+            <tr>
+              <template x-for="col in (result ? result.columns : [])" :key="col">
+                <th x-text="col"></th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(row, ri) in displayRows" :key="ri">
+              <tr>
+                <template x-for="(cell, ci) in row" :key="ci">
+                  <td :class="{ null: cell === null }" x-text="cell === null ? 'NULL' : cell"></td>
+                </template>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="pagination" x-show="result && totalPages > 1">
+        <button class="sm" @click="page--" :disabled="page === 0">‹ Prev</button>
+        <span>Page <strong x-text="page + 1"></strong> of <strong x-text="totalPages"></strong></span>
+        <button class="sm" @click="page++" :disabled="page >= totalPages - 1">Next ›</button>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty results-wrap" x-show="!result && !loading && !error">
+      <span class="icon">⌨</span>
+      <span>Write a query above and press <strong>▶ Run</strong> or <strong>Ctrl+Enter</strong></span>
+    </div>
+  </main>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>

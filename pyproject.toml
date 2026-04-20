@@ -1,0 +1,20 @@
+[project]
+name = "local-lakehouse"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+    "confluent-kafka==2.7.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["producer"]     # adds producer/ to sys.path — no path hacks in tests
+testpaths  = ["tests"]
+markers = [
+    "unit: fast, no external dependencies",
+    "integration: requires live Kafka at localhost:9094",
+]
+timeout = 30                  # global timeout; protects against hanging consumers

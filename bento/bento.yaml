@@ -1,0 +1,83 @@
+# =============================================================================
+# Bento pipeline: Kafka web-logs → ClickHouse + Iceberg (via PyIceberg writer)
+#
+# This is the lightweight alternative to the Flink streaming profile.
+# Consumer group: bento-web-logs (independent from flink-web-logs-iceberg)
+#
+# Activate with: docker compose --profile bento up -d
+# =============================================================================
+
+input:
+  kafka:
+    addresses:
+      - kafka:9092
+    topics:
+      - web-logs
+    consumer_group: bento-web-logs
+    start_from_oldest: true
+    checkpoint_limit: 1000
+
+pipeline:
+  processors:
+    - mapping: |
+        # Parse the JSON payload from Kafka
+        root = this
+
+# Fan out to two sinks simultaneously
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+
+      # ────────────────────────────────────────────────────────
+      # Sink 1: ClickHouse — direct SQL insert into MergeTree
+      # Uses native TCP port 9000 (internal Docker network only)
+      # ────────────────────────────────────────────────────────
+      - sql_insert:
+          driver: clickhouse
+          dsn: "clickhouse://default:@clickhouse:9000/web_logs"
+          table: web_logs
+          columns:
+            - request_id
+            - method
+            - path
+            - status_code
+            - latency_ms
+            - ip
+            - user_agent
+            - ts
+          args_mapping: |
+            root = [
+              this.request_id,
+              this.method,
+              this.path,
+              this.status_code.number(),
+              this.latency_ms.number(),
+              this.ip,
+              this.user_agent,
+              this.ts
+            ]
+          batching:
+            count: 1000
+            period: 5s
+
+      # ────────────────────────────────────────────────────────
+      # Sink 2: Iceberg via PyIceberg writer HTTP service
+      # Bento sends JSON batches; PyIceberg appends to Iceberg
+      # table in MinIO and commits a snapshot to Nessie.
+      # max_in_flight: 1 — prevents concurrent writes to the
+      # same Iceberg table (Iceberg is not concurrency-safe here)
+      # ────────────────────────────────────────────────────────
+      - http_client:
+          url: http://pyiceberg-writer:8001/append
+          verb: POST
+          headers:
+            Content-Type: application/json
+          max_in_flight: 1
+          batching:
+            count: 500
+            period: 10s
+            processors:
+              # Combine the batch into a single JSON array payload
+              - archive:
+                  format: json_array
