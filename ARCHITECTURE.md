@@ -35,10 +35,10 @@ graph LR
     DDB["DuckDB\n(embedded in API)"] -->|"iceberg_scan()\nhttpfs + iceberg ext"| MN
   end
 
-  subgraph API["API & UI"]
-    API["FastAPI · :8000\n/query/duckdb\n/query/trino\n/catalogs\n/tables/{engine}"] --> DDB
-    API --> T
-    UI["Web UI · :3000\nnginx + Alpine.js"] -->|"/api/ reverse proxy"| API
+  subgraph API_UI["API & UI"]
+    APIServer["FastAPI · :8000\n/query/duckdb\n/query/trino\n/catalogs\n/tables/{engine}"] --> DDB
+    APIServer --> T
+    UI["Web UI · :3000\nnginx + Alpine.js"] -->|"/api/ reverse proxy"| APIServer
     Browser(["Browser"]) --> UI
   end
 
@@ -47,7 +47,7 @@ graph LR
   style Stream_Bento fill:#2a1a10,stroke:#8a5a20,color:#ffdcaa
   style Storage fill:#2a1a2a,stroke:#7a3b7a,color:#ffc8ff
   style Query fill:#2a2a1a,stroke:#7a7a3b,color:#ffffc8
-  style API fill:#1a2a2a,stroke:#3b7a7a,color:#c8ffff
+  style API_UI fill:#1a2a2a,stroke:#3b7a7a,color:#c8ffff
 ```
 
 > **Streaming profiles are mutually exclusive.**
